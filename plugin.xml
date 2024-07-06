@@ -10,7 +10,7 @@
         <statustip>Plugins related to robot tools.</statustip>
       </group>
       <label>Lifecycle Manager</label>
-      <icon type="file">resource/cm_icon.png</icon>
+      <icon type="file">resource/lc_manager.png</icon>
       <statustip>Interact with lifecycle nodes</statustip>
     </qtgui>
   </class>
