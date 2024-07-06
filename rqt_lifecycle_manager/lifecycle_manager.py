@@ -16,25 +16,24 @@
 
 import os
 
+import sys
+
 from ament_index_python.packages import get_package_share_directory
-from controller_manager.controller_manager_services import (
-    configure_controller,
-    list_controllers,
-    load_controller,
-    switch_controllers,
-    unload_controller,
-)
-from controller_manager_msgs.msg import ControllerState
-from controller_manager_msgs.srv import SwitchController
 from python_qt_binding import loadUi
 from python_qt_binding.QtCore import QAbstractTableModel, Qt, QTimer
-from python_qt_binding.QtGui import QCursor, QFont, QIcon, QStandardItem, QStandardItemModel
-from python_qt_binding.QtWidgets import QHeaderView, QMenu, QStyledItemDelegate, QWidget
+from python_qt_binding.QtGui import QFont, QIcon
+from python_qt_binding.QtWidgets import QHeaderView, QMenu, QWidget
 from qt_gui.plugin import Plugin
-from ros2param.api import call_get_parameters, call_list_parameters
-from ros2service.api import get_service_names_and_types
+from lifecycle_msgs.msg import Transition
 
-from .update_combo import update_combo
+from ros2lifecycle.api import get_node_names
+from ros2lifecycle.api import call_get_states
+from ros2lifecycle.api import call_change_states
+
+from collections import namedtuple
+
+# Define a simple structure with fields 'name' and 'state'
+NodeState = namedtuple("NodeState", ["name", "state"])
 
 
 class LifecycleManager(Plugin):
@@ -68,14 +67,14 @@ class LifecycleManager(Plugin):
         context.add_widget(self._widget)
 
         # Initialize members
-        self._cm_name = ""  # Name of the selected controller manager's node
-        self._controllers = []  # State of each controller
+        self._lc_node_names = []  # list of lifecycle node names
+        self._lc_nodes = []  # list of lifecycle node status
         self._table_model = None
 
         # Store reference to node
         self._node = context.node
 
-        # Controller state icons
+        # lc node state icons
         path = get_package_share_directory("rqt_lifecycle_manager")
         self._icons = {
             "active": QIcon(f"{path}/resource/led_green.png"),
@@ -84,26 +83,25 @@ class LifecycleManager(Plugin):
             "unconfigured": QIcon(f"{path}/resource/led_off.png"),
         }
 
-        # Controllers display
+        # lc nodes display
         table_view = self._widget.table_view
         table_view.setContextMenuPolicy(Qt.CustomContextMenu)
-        table_view.customContextMenuRequested.connect(self._on_ctrl_menu)
+        table_view.customContextMenuRequested.connect(self._on_lc_node_menu)
 
         header = table_view.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.ResizeToContents)
         header.setContextMenuPolicy(Qt.CustomContextMenu)
-        header.customContextMenuRequested.connect(self._on_header_menu)
 
         # Timer for listing nodes
         self._update_node_list_timer = QTimer(self)
         self._update_node_list_timer.setInterval(int(1000.0 / self._update_freq))
-        self._update_node_list_timer.timeout.connect(self._update_cm_list)
+        self._update_node_list_timer.timeout.connect(self._update_node_list)
         self._update_node_list_timer.start()
 
-        # Timer for running controller updates
+        # Timer for running lc node updates
         self._update_nodes_state_timer = QTimer(self)
         self._update_nodes_state_timer.setInterval(int(1000.0 / self._update_freq))
-        self._update_nodes_state_timer.timeout.connect(self._update_controllers)
+        self._update_nodes_state_timer.timeout.connect(self._update_nodes_state)
         self._update_nodes_state_timer.start()
 
     def shutdown_plugin(self):
@@ -111,154 +109,130 @@ class LifecycleManager(Plugin):
         self._update_nodes_state_timer.stop()
 
     def save_settings(self, plugin_settings, instance_settings):
-        instance_settings.set_value("cm_name", self._cm_name)
+        pass
 
     def restore_settings(self, plugin_settings, instance_settings):
-        # Restore last session's controller_manager, if present
-        self._update_cm_list()
+        pass
 
-    def _update_cm_list(self):
-        # TODO: list nodes
-        print()
+    def _update_node_list(self):
+        node_names = self._list_lc_nodes()
 
-    def _update_controllers(self):
-        if not self._cm_name:
-            return
+        # Update lc node display, if necessary
+        if self._lc_node_names != node_names:
+            self._lc_node_names = node_names
+            self._update_nodes_state()
 
-        # Find controllers associated to the selected controller manager
-        controllers = self._list_controllers()
+    def _update_nodes_state(self):
+        # Update lc node state
+        self._lc_nodes = []
+        for lc_node in self._lc_node_names:
+            states = call_get_states(node=self._node, node_names=[lc_node.name])
+            # output exceptions
+            for node_name in sorted(states.keys()):
+                state = states[node_name]
+                if isinstance(state, Exception):
+                    print(
+                        "Exception while calling service of node " f"'{node_name}': {state}",
+                        file=sys.stderr,
+                    )
+                    del states[node_name]
 
-        # Update controller display, if necessary
-        if self._controllers != controllers:
-            self._controllers = controllers
-            self._show_controllers()  # NOTE: Model is recomputed from scratch
+            # output current states
+            for node_name in sorted(states.keys()):
+                state = states[node_name]
+                self._lc_nodes.append(NodeState(name=node_name, state=state.label))
 
-    def _list_controllers(self):
+        self._show_lc_nodes()
+
+    def _list_lc_nodes(self):
         """
-        List the controllers associated to a controller manager node.
+        List the lifecycle nodes.
 
-        @return List of controllers associated to a controller manager
-        node. Contains both stopped/running controllers, as returned by
-        the C{list_controllers} service, plus uninitialized controllers with
-        returned by the C{list_parameters} service..
         @rtype [str]
         """
-        # Add loaded controllers first
         try:
-            controllers = list_controllers(
-                self._node, self._cm_name, 2.0 / self._update_freq
-            ).controller
-
-            # Append potential controller configs found in the node's parameters
-            for name in _get_parameter_controller_names(self._node, self._cm_name):
-                add_ctrl = all(name != ctrl.name for ctrl in controllers)
-                if add_ctrl:
-                    type_str = _get_controller_type(self._node, self._cm_name, name)
-                    uninit_ctrl = ControllerState(name=name, type=type_str)
-                    controllers.append(uninit_ctrl)
-            return controllers
+            node_names = get_node_names(node=self._node, include_hidden_nodes=False)
+            return node_names
         except RuntimeError as e:
             print(e)
             return []
 
-    def _show_controllers(self):
+    def _show_lc_nodes(self):
         table_view = self._widget.table_view
-        self._table_model = LifecycleNodeTable(self._controllers, self._icons)
+        self._table_model = LifecycleNodeTable(self._lc_nodes, self._icons)
         table_view.setModel(self._table_model)
 
-    def _on_ctrl_menu(self, pos):
-        # Get data of selected controller
+    def _on_lc_node_menu(self, pos):
+        # Get data of selected node
         row = self._widget.table_view.rowAt(pos.y())
         if row < 0:
             return  # Cursor is not under a valid item
 
-        ctrl = self._controllers[row]
+        lc_node = self._lc_nodes[row]
 
         # Show context menu
         menu = QMenu(self._widget.table_view)
-        if ctrl.state == "active":
+        if lc_node.state == "active":
             action_deactivate = menu.addAction(self._icons["inactive"], "Deactivate")
-            action_kill = menu.addAction(self._icons["finalized"], "Deactivate and Unload")
-        elif ctrl.state == "inactive":
+            action_unspawn = menu.addAction(self._icons["unconfigured"], "Deactivate and cleanup")
+            action_shutdown = menu.addAction(self._icons["finalized"], "Shutdown")
+        elif lc_node.state == "inactive":
             action_activate = menu.addAction(self._icons["active"], "Activate")
-            action_unload = menu.addAction(self._icons["unconfigured"], "Unload")
-        elif ctrl.state == "unconfigured":
+            action_cleanup = menu.addAction(self._icons["unconfigured"], "Cleanup")
+            action_shutdown = menu.addAction(self._icons["finalized"], "Shutdown")
+        elif lc_node.state == "unconfigured":
             action_configure = menu.addAction(self._icons["inactive"], "Configure")
             action_spawn = menu.addAction(self._icons["active"], "Configure and Activate")
+            action_shutdown = menu.addAction(self._icons["finalized"], "Shutdown")
         else:
-            # Controller isn't loaded
-            action_load = menu.addAction(self._icons["unconfigured"], "Load")
-            action_configure = menu.addAction(self._icons["inactive"], "Load and Configure")
-            action_activate = menu.addAction(self._icons["active"], "Load, Configure and Activate")
+            pass  # finalized
 
         action = menu.exec_(self._widget.table_view.mapToGlobal(pos))
 
         # Evaluate user action
-        if ctrl.state == "active":
+        if lc_node.state == "active":
             if action is action_deactivate:
-                self._deactivate_controller(ctrl.name)
-            elif action is action_kill:
-                self._deactivate_controller(ctrl.name)
-                unload_controller(self._node, self._cm_name, ctrl.name)
-        elif ctrl.state in ("finalized", "inactive"):
+                self._call_transition(lc_node.name, "deactivate")
+            elif action is action_shutdown:
+                self._call_transition(lc_node.name, "shutdown")
+            elif action is action_unspawn:
+                self._call_transition(lc_node.name, "deactivate")
+                self._call_transition(lc_node.name, "cleanup")
+        elif lc_node.state == "inactive":
             if action is action_activate:
-                self._activate_controller(ctrl.name)
-            elif action is action_unload:
-                unload_controller(self._node, self._cm_name, ctrl.name)
-        elif ctrl.state == "unconfigured":
+                self._call_transition(lc_node.name, "activate")
+            elif action is action_cleanup:
+                self._call_transition(lc_node.name, "cleanup")
+            elif action is action_shutdown:
+                self._call_transition(lc_node.name, "shutdown")
+        elif lc_node.state == "unconfigured":
             if action is action_configure:
-                configure_controller(self._node, self._cm_name, ctrl.name)
+                self._call_transition(lc_node.name, "configure")
+            elif action is action_shutdown:
+                self._call_transition(lc_node.name, "shutdown")
             elif action is action_spawn:
-                load_controller(self._node, self._cm_name, ctrl.name)
-                self._activate_controller(ctrl.name)
+                self._call_transition(lc_node.name, "configure")
+                self._call_transition(lc_node.name, "activate")
         else:
-            # Assume controller isn't loaded
-            if action is action_load:
-                load_controller(self._node, self._cm_name, ctrl.name)
-            elif action is action_configure:
-                load_controller(self._node, self._cm_name, ctrl.name)
-                configure_controller(self._node, self._cm_name, ctrl.name)
-            elif action is action_activate:
-                load_controller(self._node, self._cm_name, ctrl.name)
-                configure_controller(self._node, self._cm_name, ctrl.name)
-                self._activate_controller(ctrl.name)
+            pass  # finalized
 
-    def _on_header_menu(self, pos):
-        header = self._widget.table_view.horizontalHeader()
+    def _call_transition(self, node_name, transition_label):
 
-        # Show context menu
-        menu = QMenu(self._widget.table_view)
-        action_toggle_auto_resize = menu.addAction("Toggle Auto-Resize")
-        action = menu.exec_(header.mapToGlobal(pos))
+        transition = Transition(label=transition_label)  #
 
-        # Evaluate user action
-        if action is action_toggle_auto_resize:
-            if header.resizeMode(0) == QHeaderView.ResizeToContents:
-                header.setSectionResizeMode(QHeaderView.Interactive)
-            else:
-                header.setSectionResizeMode(QHeaderView.ResizeToContents)
+        results = call_change_states(node=self._node, transitions={node_name: transition})
+        result = results[node_name]
 
-    def _activate_controller(self, name):
-        switch_controllers(
-            node=self._node,
-            controller_manager_name=self._cm_name,
-            deactivate_controllers=[],
-            activate_controllers=[name],
-            strict=SwitchController.Request.STRICT,
-            activate_asap=False,
-            timeout=0.3,
-        )
-
-    def _deactivate_controller(self, name):
-        switch_controllers(
-            node=self._node,
-            controller_manager_name=self._cm_name,
-            deactivate_controllers=[name],
-            activate_controllers=[],
-            strict=SwitchController.Request.STRICT,
-            activate_asap=False,
-            timeout=0.3,
-        )
+        # output response
+        if isinstance(result, Exception):
+            print(
+                "Exception while calling service of node " f"'{node_name}': {result}",
+                file=sys.stderr,
+            )
+        elif result:
+            print("Transitioning successful")
+        else:
+            print("Transitioning failed", file=sys.stderr)
 
 
 class LifecycleNodeTable(QAbstractTableModel):
@@ -268,9 +242,9 @@ class LifecycleNodeTable(QAbstractTableModel):
     The model allows display of basic read-only information
     """
 
-    def __init__(self, controller_info, icons, parent=None):
+    def __init__(self, node_info, icons, parent=None):
         QAbstractTableModel.__init__(self, parent)
-        self._data = controller_info
+        self._data = node_info
         self._icons = icons
 
     def rowCount(self, parent):
@@ -283,7 +257,7 @@ class LifecycleNodeTable(QAbstractTableModel):
         if orientation != Qt.Horizontal or role != Qt.DisplayRole:
             return None
         if col == 0:
-            return "controller"
+            return "node"
         elif col == 1:
             return "state"
 
@@ -291,16 +265,16 @@ class LifecycleNodeTable(QAbstractTableModel):
         if not index.isValid():
             return None
 
-        ctrl = self._data[index.row()]
+        lc_node = self._data[index.row()]
 
         if role == Qt.DisplayRole:
             if index.column() == 0:
-                return ctrl.name
+                return lc_node.name
             elif index.column() == 1:
-                return ctrl.state or "not loaded"
+                return lc_node.state or "not loaded"
 
         if role == Qt.DecorationRole and index.column() == 0:
-            return self._icons.get(ctrl.state)
+            return self._icons.get(lc_node.state)
 
         if role == Qt.FontRole and index.column() == 0:
             bf = QFont()
@@ -309,51 +283,3 @@ class LifecycleNodeTable(QAbstractTableModel):
 
         if role == Qt.TextAlignmentRole and index.column() == 1:
             return Qt.AlignCenter
-
-
-class FontDelegate(QStyledItemDelegate):
-    """
-    Simple delegate for customizing font weight and italization.
-
-    Simple delegate for customizing font weight and italization when displaying resources claimed
-    by a controller.
-    """
-
-    def paint(self, painter, option, index):
-        if not index.parent().isValid():
-            # Root level
-            option.font.setWeight(QFont.Bold)
-        if index.parent().isValid() and not index.parent().parent().isValid():
-            # Hardware interface level
-            option.font.setItalic(True)
-            option.font.setWeight(QFont.Bold)
-        QStyledItemDelegate.paint(self, painter, option, index)
-
-
-def _get_controller_type(node, node_name, ctrl_name):
-    """
-    Get the controller's type from the controller manager node with the call_get_parameter service.
-
-    @param node_name Controller manager node's name
-    @type node_name str
-    @param ctrl_name Controller name
-    @type ctrl_name str
-    @return Controller type
-    @rtype str
-    """
-    response = call_get_parameters(node=node, node_name=node_name, parameter_names=[ctrl_name])
-    return response.values[0].string_value if response.values else ""
-
-
-def _get_parameter_controller_names(node, node_name):
-    """Get list of ROS parameter names that potentially represent a controller configuration."""
-    parameter_names = call_list_parameters(node=node, node_name=node_name)
-    suffix = ".type"
-    # @note: The versions conditioning is added here to support the source-compatibility with Humble
-    if os.environ.get("ROS_DISTRO") == "humble":
-        # for humble, ros2param < 0.20.0
-        return [n[: -len(suffix)] for n in parameter_names if n.endswith(suffix)]
-    else:
-        return [
-            n[: -len(suffix)] for n in parameter_names.result().result.names if n.endswith(suffix)
-        ]
