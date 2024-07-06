@@ -1,0 +1,17 @@
+<library path="rqt_lifecycle_manager">
+  <class name="LifecycleManager"
+    type="rqt_lifecycle_manager.lifecycle_manager.LifecycleManager"
+    base_class_type="rqt_gui_py::Plugin">
+    <description> Graphical frontend for interacting with lifecycle nodes. </description>
+    <qtgui>
+      <group>
+        <label>Robot Tools</label>
+        <icon type="theme">folder</icon>
+        <statustip>Plugins related to robot tools.</statustip>
+      </group>
+      <label>Lifecycle Manager</label>
+      <icon type="file">resource/cm_icon.png</icon>
+      <statustip>Interact with lifecycle nodes</statustip>
+    </qtgui>
+  </class>
+</library>
