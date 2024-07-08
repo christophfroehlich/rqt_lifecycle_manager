@@ -120,24 +120,25 @@ class LifecycleManager(Plugin):
             self._update_nodes_state()
 
     def _update_nodes_state(self):
-        # Update lc node state
+        # Update lc nodes' states
         self._lc_nodes = []
-        for lc_node in self._lc_node_names:
-            states = call_get_states(node=self._node, node_names=[lc_node.name])
-            # output exceptions
-            for node_name in sorted(states.keys()):
-                state = states[node_name]
-                if isinstance(state, Exception):
-                    print(
-                        "Exception while calling service of node " f"'{node_name}': {state}",
-                        file=sys.stderr,
-                    )
-                    del states[node_name]
+        states = call_get_states(
+            node=self._node, node_names=[lc_node.name for lc_node in self._lc_node_names]
+        )
+        # output exceptions
+        for node_name in sorted(states.keys()):
+            state = states[node_name]
+            if isinstance(state, Exception):
+                print(
+                    "Exception while calling service of node " f"'{node_name}': {state}",
+                    file=sys.stderr,
+                )
+                del states[node_name]
 
-            # output current states
-            for node_name in sorted(states.keys()):
-                state = states[node_name]
-                self._lc_nodes.append(NodeState(name=node_name, state=state.label))
+        # output current states
+        for node_name in sorted(states.keys()):
+            state = states[node_name]
+            self._lc_nodes.append(NodeState(name=node_name, state=state.label))
 
         self._show_lc_nodes()
 
