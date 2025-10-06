@@ -59,7 +59,9 @@ class LifecycleManager(Plugin):
         # plugin at once, these lines add number to make it easy to
         # tell from pane to pane.
         if context.serial_number() > 1:
-            self._widget.setWindowTitle(f"{self._widget.windowTitle()} {context.serial_number()}")
+            self._widget.setWindowTitle(
+                f"{self._widget.windowTitle()} {context.serial_number()}"
+            )
         # Add widget to the user interface
         context.add_widget(self._widget)
 
@@ -123,14 +125,15 @@ class LifecycleManager(Plugin):
         # Update lc nodes' states
         self._lc_nodes = []
         states = call_get_states(
-            node=self._node, node_names=[lc_node.name for lc_node in self._lc_node_names]
+            node=self._node,
+            node_names=[lc_node.name for lc_node in self._lc_node_names],
         )
         # output exceptions
         for node_name in sorted(states.keys()):
             state = states[node_name]
             if isinstance(state, Exception):
                 print(
-                    "Exception while calling service of node " f"'{node_name}': {state}",
+                    f"Exception while calling service of node '{node_name}': {state}",
                     file=sys.stderr,
                 )
                 del states[node_name]
@@ -172,7 +175,9 @@ class LifecycleManager(Plugin):
         menu = QMenu(self._widget.table_view)
         if lc_node.state == "active":
             action_deactivate = menu.addAction(self._icons["inactive"], "Deactivate")
-            action_unspawn = menu.addAction(self._icons["unconfigured"], "Deactivate and cleanup")
+            action_unspawn = menu.addAction(
+                self._icons["unconfigured"], "Deactivate and cleanup"
+            )
             action_shutdown = menu.addAction(self._icons["finalized"], "Shutdown")
         elif lc_node.state == "inactive":
             action_activate = menu.addAction(self._icons["active"], "Activate")
@@ -180,7 +185,9 @@ class LifecycleManager(Plugin):
             action_shutdown = menu.addAction(self._icons["finalized"], "Shutdown")
         elif lc_node.state == "unconfigured":
             action_configure = menu.addAction(self._icons["inactive"], "Configure")
-            action_spawn = menu.addAction(self._icons["active"], "Configure and Activate")
+            action_spawn = menu.addAction(
+                self._icons["active"], "Configure and Activate"
+            )
             action_shutdown = menu.addAction(self._icons["finalized"], "Shutdown")
         else:
             pass  # finalized
@@ -215,16 +222,17 @@ class LifecycleManager(Plugin):
             pass  # finalized
 
     def _call_transition(self, node_name, transition_label):
-
         transition = Transition(label=transition_label)  #
 
-        results = call_change_states(node=self._node, transitions={node_name: transition})
+        results = call_change_states(
+            node=self._node, transitions={node_name: transition}
+        )
         result = results[node_name]
 
         # output response
         if isinstance(result, Exception):
             print(
-                "Exception while calling service of node " f"'{node_name}': {result}",
+                f"Exception while calling service of node '{node_name}': {result}",
                 file=sys.stderr,
             )
         elif result:

@@ -1,4 +1,3 @@
-
 # To use:
 #
 #     pre-commit run -a
@@ -33,39 +32,35 @@ repos:
         exclude_types: [rst]
       - id: fix-byte-order-marker
 
-
   # Python hooks
   - repo: https://github.com/asottile/pyupgrade
     rev: v3.19.1
     hooks:
-    -   id: pyupgrade
+      - id: pyupgrade
         args: [--py36-plus]
 
   # PyDocStyle
   - repo: https://github.com/PyCQA/pydocstyle
     rev: 6.3.0
     hooks:
-    - id: pydocstyle
-      args: ["--ignore=D100,D101,D102,D103,D104,D105,D106,D107,D203,D212,D404"]
-
-  - repo: https://github.com/psf/black
-    rev: 25.1.0
-    hooks:
-      - id: black
-        args: ["--line-length=99"]
-
-  - repo: https://github.com/pycqa/flake8
-    rev: 7.1.2
-    hooks:
-    - id: flake8
-      args: ["--extend-ignore=E501"]
+      - id: pydocstyle
+        args:
+          ["--ignore=D100,D101,D102,D103,D104,D105,D106,D107,D203,D212,D404"]
 
   # CPP hooks
   - repo: https://github.com/pre-commit/mirrors-clang-format
     rev: v19.1.7
     hooks:
       - id: clang-format
-        args: ['-fallback-style=none', '-i']
+        args: ["-fallback-style=none", "-i"]
+
+  - repo: https://github.com/adrienverge/yamllint
+    rev: v1.37.1
+    hooks:
+      - id: yamllint
+        args: ["--no-warnings", "--config-data", "{extends: default, rules: {line-length: disable}}"]
+        types: [text]
+        files: \.(yaml|yml)$
 
   - repo: local
     hooks:
@@ -84,9 +79,18 @@ repos:
         entry: ament_cpplint
         language: system
         files: \.(h\+\+|h|hh|hxx|hpp|cuh|c|cc|cpp|cu|c\+\+|cxx|tpp|txx)$
-        args: ["--linelength=100", "--filter=-whitespace/newline"]
+        args: ["--linelength=100", "--filter=-whitespace/newline,-legal/copyright"]
 
-  # Cmake hooks
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    # Ruff version.
+    rev: v0.13.3
+    hooks:
+      # Run the linter.
+      - id: ruff-check
+        args: ['--fix']
+      # Run the formatter.
+      - id: ruff-format
+
   - repo: local
     hooks:
       - id: ament_lint_cmake
@@ -96,47 +100,11 @@ repos:
         language: system
         files: CMakeLists\.txt$
 
-  # Copyright
-  - repo: local
-    hooks:
-      - id: ament_copyright
-        name: ament_copyright
-        description: Check if copyright notice is available in all files.
-        entry: ament_copyright
-        language: system
-        exclude: .*/conf\.py$
-
-  # Docs - RestructuredText hooks
-  - repo: https://github.com/PyCQA/doc8
-    rev: v1.1.2
-    hooks:
-      - id: doc8
-        args: ['--max-line-length=100', '--ignore=D001']
-        exclude: CHANGELOG\.rst$
-
-  - repo: https://github.com/pre-commit/pygrep-hooks
-    rev: v1.10.0
-    hooks:
-      - id: rst-backticks
-        exclude: CHANGELOG\.rst$
-      - id: rst-directive-colons
-      - id: rst-inline-touching-normal
-
   # Spellcheck in comments and docs
   # skipping of *.svg files is not working...
   - repo: https://github.com/codespell-project/codespell
     rev: v2.4.1
     hooks:
       - id: codespell
-        args: ['--write-changes', '--uri-ignore-words-list=ist', '-L manuel']
+        args: ["--write-changes"]
         exclude: CHANGELOG\.rst|\.(svg|pyc|drawio)$
-
-  - repo: https://github.com/python-jsonschema/check-jsonschema
-    rev: 0.31.2
-    hooks:
-      - id: check-github-workflows
-        args: ["--verbose"]
-      - id: check-github-actions
-        args: ["--verbose"]
-      - id: check-dependabot
-        args: ["--verbose"]
