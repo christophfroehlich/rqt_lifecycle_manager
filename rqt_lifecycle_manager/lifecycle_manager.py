@@ -14,20 +14,16 @@
 
 import os
 import sys
+from collections import namedtuple
 
 from ament_index_python.packages import get_package_share_directory
+from lifecycle_msgs.msg import Transition
 from python_qt_binding import loadUi
 from python_qt_binding.QtCore import QAbstractTableModel, Qt, QTimer
 from python_qt_binding.QtGui import QFont, QIcon
 from python_qt_binding.QtWidgets import QHeaderView, QMenu, QWidget
 from qt_gui.plugin import Plugin
-from lifecycle_msgs.msg import Transition
-
-from ros2lifecycle.api import get_node_names
-from ros2lifecycle.api import call_get_states
-from ros2lifecycle.api import call_change_states
-
-from collections import namedtuple
+from ros2lifecycle.api import call_change_states, call_get_states, get_node_names
 
 # Define a simple structure with fields 'name' and 'state'
 NodeState = namedtuple("NodeState", ["name", "state"])
