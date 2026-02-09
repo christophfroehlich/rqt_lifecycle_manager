@@ -122,7 +122,8 @@ class LifecycleManager(Plugin):
         self._lc_nodes = []
         states = call_get_states(
             node=self._node,
-            node_names=[lc_node.name for lc_node in self._lc_node_names],
+            # Use full name to include namespace
+            node_names=[lc_node.full_name for lc_node in self._lc_node_names],
         )
         # output exceptions
         for node_name in sorted(states.keys()):
