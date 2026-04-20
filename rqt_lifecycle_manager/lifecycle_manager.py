@@ -120,12 +120,22 @@ class LifecycleManager(Plugin):
     def _update_nodes_state(self):
         # Update lc nodes' states
         self._lc_nodes = []
-        states = call_get_states(
-            node=self._node,
-            # Use full name to include namespace
-            node_names=[lc_node.full_name for lc_node in self._lc_node_names],
-        )
-        # output exceptions
+        try:
+            states = call_get_states(
+                node=self._node,
+                # Use full name to include namespace
+                node_names=[lc_node.full_name for lc_node in self._lc_node_names],
+            )
+        except Exception as error:
+            print(
+                f"Exception while retrieving lifecycle states: {error}",
+                file=sys.stderr,
+            )
+            self._show_lc_nodes()
+            return
+
+        # Output exceptions and only keep successful responses.
+        valid_states = {}
         for node_name in sorted(states.keys()):
             state = states[node_name]
             if isinstance(state, Exception):
@@ -133,11 +143,12 @@ class LifecycleManager(Plugin):
                     f"Exception while calling service of node '{node_name}': {state}",
                     file=sys.stderr,
                 )
-                del states[node_name]
+                continue
+            valid_states[node_name] = state
 
         # output current states
-        for node_name in sorted(states.keys()):
-            state = states[node_name]
+        for node_name in sorted(valid_states.keys()):
+            state = valid_states[node_name]
             self._lc_nodes.append(NodeState(name=node_name, state=state.label))
 
         self._show_lc_nodes()
@@ -221,10 +232,24 @@ class LifecycleManager(Plugin):
     def _call_transition(self, node_name, transition_label):
         transition = Transition(label=transition_label)  #
 
-        results = call_change_states(
-            node=self._node, transitions={node_name: transition}
-        )
-        result = results[node_name]
+        try:
+            results = call_change_states(
+                node=self._node, transitions={node_name: transition}
+            )
+        except Exception as error:
+            print(
+                f"Exception while calling service of node '{node_name}': {error}",
+                file=sys.stderr,
+            )
+            return
+
+        result = results.get(node_name)
+        if result is None:
+            print(
+                f"No transition result for node '{node_name}'. The node may have disappeared.",
+                file=sys.stderr,
+            )
+            return
 
         # output response
         if isinstance(result, Exception):
