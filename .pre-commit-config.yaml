@@ -123,3 +123,13 @@ repos:
       - id: codespell
         args: ["--write-changes", "-L debians"]
         exclude: CHANGELOG\.rst|\.(svg|pyc|drawio)$
+
+  - repo: https://github.com/python-jsonschema/check-jsonschema
+    rev: 0.37.1
+    hooks:
+      - id: check-github-workflows
+        args: ["--verbose"]
+      - id: check-github-actions
+        args: ["--verbose"]
+      - id: check-dependabot
+        args: ["--verbose"]
