@@ -35,9 +35,10 @@ NodeState = namedtuple("NodeState", ["name", "state"])
 class LifecycleManager(Plugin):
     """Graphical frontend for interacting with lifecycle nodes."""
 
-    _update_freq = 1  # Hz
-    _service_timeout = 0.5  # seconds
-    _spin_timeout = 0.5  # seconds
+    _default_update_freq = 1.0  # Hz
+    _default_service_timeout = 1.0  # seconds
+    _default_spin_timeout = 0.5  # seconds
+    _params_prefix = "rqt_lifecycle_manager"
 
     def __init__(self, context):
         super().__init__(context)
@@ -74,6 +75,17 @@ class LifecycleManager(Plugin):
         # Store reference to node
         self._node = context.node
 
+        # Load plugin behavior from ROS parameters.
+        self._update_freq = self._get_positive_float_param(
+            "update_freq", self._default_update_freq
+        )
+        self._service_timeout = self._get_positive_float_param(
+            "service_timeout", self._default_service_timeout
+        )
+        self._spin_timeout = self._get_positive_float_param(
+            "spin_timeout", self._default_spin_timeout
+        )
+
         # lc node state icons
         path = get_package_share_directory("rqt_lifecycle_manager")
         self._icons = {
@@ -103,6 +115,38 @@ class LifecycleManager(Plugin):
         self._update_nodes_state_timer.setInterval(int(1000.0 / self._update_freq))
         self._update_nodes_state_timer.timeout.connect(self._update_nodes_state)
         self._update_nodes_state_timer.start()
+
+    def _get_positive_float_param(self, param_name, default_value):
+        """Return a positive float from ROS parameters, falling back to default."""
+        full_name = f"{self._params_prefix}.{param_name}"
+
+        if not self._node.has_parameter(full_name):
+            self._node.declare_parameter(full_name, default_value)
+
+        value = self._node.get_parameter(full_name).value
+        try:
+            value = float(value)
+        except (TypeError, ValueError):
+            print(
+                (
+                    f"Invalid parameter '{full_name}'={value!r}; "
+                    f"using default {default_value}."
+                ),
+                file=sys.stderr,
+            )
+            return default_value
+
+        if value <= 0.0:
+            print(
+                (
+                    f"Parameter '{full_name}' must be > 0, got {value}; "
+                    f"using default {default_value}."
+                ),
+                file=sys.stderr,
+            )
+            return default_value
+
+        return value
 
     def shutdown_plugin(self):
         self._update_node_list_timer.stop()
